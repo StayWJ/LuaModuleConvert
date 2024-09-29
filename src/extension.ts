@@ -117,10 +117,10 @@ class LuaModuleRegistry {
 
             // 使用正则表达式匹配所有的 function 语句，并记录它们的位置信息
             const functions = new Map<string, FunctionInfo>();
-            const functionRegex = /function\s+(\w+)\s*\(/;
 
             let match;
             lines.forEach((line, index) => {
+                const functionRegex = /function\s+(\w+)\s*\(/;
                 match = functionRegex.exec(line);
                 if (!match) {
                     return;
@@ -422,7 +422,6 @@ async function convertModule() {
     // 使用正则表达式匹配所有的 function 语句，并记录它们的位置信息
     const functions = new Set<string>();
     const overwriteLines = new Set<number>();
-    const functionRegex = /^function\s+(\w+)\s*\(/;
 
     let match;
     const lines = content.split('\n'); // 按行分割文件内容
@@ -435,6 +434,7 @@ async function convertModule() {
                 return;
             }
 
+            const functionRegex = /^function\s+(\w+)\s*\(/;
             match = functionRegex.exec(line);
             if (!match) {
                 return;
@@ -463,45 +463,48 @@ async function convertModule() {
             // 将函数定义移动到模块的函数表中
             const newFuncName = `${moduleName}.${functionName}`;
             editBuilder.replace(location.range, newFuncName);
-
-            // 文件内替换原本直接调用函数的地方，修改为 ${moduleName}.${functionName}
         });
 
         // 再处理模块内调用自有函数的语句
         let functionNameStr = Array.from(functions).join('|');
-        const functionCallRegex = new RegExp(`[^a-zA-Z\\.:\\()](${functionNameStr})\\(`, "g");
         lines.forEach((line, index) => {
             if (overwriteLines.has(index)) {
                 return;
             }
 
-            match = functionCallRegex.exec(line);
-            if (!match) {
-                return;
+            const functionCallRegex = new RegExp(`[^a-zA-Z\\.:](${functionNameStr})\\(`, "g");
+            while (match = functionCallRegex.exec(line)) {
+                // 获取函数名
+                const functionName = match[1];
+                const resultTxt = match[0];
+
+                console.log(`发现函数[${functionName}]调用, 文本 = ${resultTxt}`);
+
+                // 函数定义的位置
+                const start = match.index;
+                const end = start + resultTxt.length;
+                const location = new vscode.Location(
+                    vscode.Uri.file(filePath), // 文件的 Uri 对象
+                    new vscode.Range(
+                        new vscode.Position(index, start), // 起始位置
+                        new vscode.Position(index, end) // 结束位置
+                    )
+                );
+
+                // 文件内替换原本直接调用函数的地方，修改为 ${moduleName}.${functionName}
+                const newFuncName = resultTxt.replace(functionName, `${moduleName}.${functionName}`);;
+                editBuilder.replace(location.range, newFuncName);
             }
-
-            // 获取函数名
-            const functionName = match[1];
-            const resultTxt = match[0];
-
-            console.log(`发现函数[${functionName}]调用, 文本 = ${resultTxt}`);
-
-            // 函数定义的位置
-            const start = match.index;
-            const end = start + resultTxt.length;
-            const location = new vscode.Location(
-                vscode.Uri.file(filePath), // 文件的 Uri 对象
-                new vscode.Range(
-                    new vscode.Position(index, start), // 起始位置
-                    new vscode.Position(index, end) // 结束位置
-                )
-            );
-
-            // 文件内替换原本直接调用函数的地方，修改为 ${moduleName}.${functionName}
-            const newFuncName = resultTxt.replace(functionName, `${moduleName}.${functionName}`);;
-            editBuilder.replace(location.range, newFuncName);
-
         });
+
+        // 在文件后面添加模块的导出语句
+        const exportStr = `\nreturn ${moduleName};\n`;
+        const lastLine = lines[lines.length - 1];
+        if (lastLine.trim() === '') {
+            editBuilder.insert(new vscode.Position(lines.length - 1, 0), exportStr);
+        } else {
+            editBuilder.insert(new vscode.Position(lines.length, 0), '\n' + exportStr);
+        }
 
         // const saved = await editor.document.save();
         // if (!saved) {
