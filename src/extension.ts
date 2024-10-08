@@ -421,16 +421,37 @@ async function convertModule() {
 
     // 使用正则表达式匹配所有的 function 语句，并记录它们的位置信息
     const functions = new Set<string>();
+    const fieldNames = new Set<string>();
     const overwriteLines = new Set<number>();
 
     let match;
     const lines = content.split('\n'); // 按行分割文件内容
     await editor.edit(editBuilder => {
-        // 先预处理模块和函数定义语句
+        // 先预处理模块、字段和函数定义语句
         lines.forEach((line, index) => {
             // 处理模块注册语句
             if (convertModuleLine(editBuilder, line, index)) {
                 overwriteLines.add(index);
+                return;
+            }
+
+            // 字段声明语句
+            const fieldRegex = /^(\w+)\s*=\s*.*;/;
+            const fieldMatch = fieldRegex.exec(line);
+
+            if (fieldMatch) {
+                const fieldName = fieldMatch[1];
+                fieldNames.add(fieldName);
+                const start = fieldMatch.index;
+                const end = start + fieldName.length;
+                const fieldLocation = new vscode.Location(
+                    vscode.Uri.file(filePath), // 文件的 Uri 对象
+                    new vscode.Range(
+                        new vscode.Position(index, start), // 起始位置
+                        new vscode.Position(index, end) // 结束位置
+                    )
+                );
+                editBuilder.replace(fieldLocation.range, `${moduleName}.${fieldName}`);
                 return;
             }
 
@@ -466,10 +487,35 @@ async function convertModule() {
         });
 
         // 再处理模块内调用自有函数的语句
-        let functionNameStr = Array.from(functions).join('|');
+        const functionNameStr = Array.from(functions).join('|');
+        const fieldNameStr = Array.from(fieldNames).join('|');
         lines.forEach((line, index) => {
             if (overwriteLines.has(index)) {
                 return;
+            }
+
+            const fieldRegex = new RegExp(`[^\\.](${fieldNameStr})`, "g");
+            while (match = fieldRegex.exec(line)) {
+                // 获取字段名
+                const fieldName = match[1];
+                const resultTxt = match[0];
+
+                console.log(`发现字段[${fieldName}]引用, 文本 = ${resultTxt}`);
+
+                // 字段引用的位置
+                const start = match.index;
+                const end = start + resultTxt.length;
+                const location = new vscode.Location(
+                    vscode.Uri.file(filePath), // 文件的 Uri 对象
+                    new vscode.Range(
+                        new vscode.Position(index, start), // 起始位置
+                        new vscode.Position(index, end) // 结束位置
+                    )
+                );
+
+                // 文件内替换原本直接引用字段的地方，修改为 ${moduleName}.${fieldName}
+                const newFieldName = resultTxt.replace(fieldName, `${moduleName}.${fieldName}`);;
+                editBuilder.replace(location.range, newFieldName);
             }
 
             const functionCallRegex = new RegExp(`[^a-zA-Z\\.:](${functionNameStr})\\(`, "g");
