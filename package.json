@@ -1,7 +1,7 @@
 {
   "name": "lua-module-converter",
   "displayName": "LuaModuleConverter",
-  "description": "todo",
+  "description": "用于转换lua模块声明方式",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.93.0"
